@@ -4,7 +4,7 @@
  * @Author: 李雯
  * @Date: 2021-12-20 20:10:20
  * @LastEditors: 李雯
- * @LastEditTime: 2021-12-24 21:11:16
+ * @LastEditTime: 2021-12-27 22:19:22
  */
 import React from "react";
 import Enumerable from "linq-js";
@@ -52,44 +52,50 @@ const refs = {
  * @description: 分辨率
  */
 const resolvingPower = {
-  qvgaConstraints: {
+  qvga: {
     audio: true,
     video: {
+      deviceId: null,
       width: { exact: 320 },
       height: { exact: 240 },
     },
   } as MediaStreamConstraints,
-  vgaConstraints: {
+  vga: {
     audio: true,
     video: {
+      deviceId: null,
       width: { exact: 640 },
       height: { exact: 480 },
     },
   } as MediaStreamConstraints,
-  hdConstraints: {
+  hd: {
     audio: true,
     video: {
+      deviceId: null,
       width: { exact: 1280 },
       height: { exact: 720 },
     },
   } as MediaStreamConstraints,
-  fullhdConstraints: {
+  fullhd: {
     audio: true,
     video: {
+      deviceId: null,
       width: { exact: 1920 },
       height: { exact: 1080 },
     },
   } as MediaStreamConstraints,
-  twokhdConstraints: {
+  twokhd: {
     audio: true,
     video: {
+      deviceId: null,
       width: { exact: 2560 },
       height: { exact: 1440 },
     },
   } as MediaStreamConstraints,
-  fourhdConstraints: {
+  fourhd: {
     audio: true,
     video: {
+      deviceId: null,
       width: { exact: 4096 },
       height: { exact: 2160 },
     },
@@ -116,6 +122,17 @@ const models = {
    * @description: 音频计量
    */
   soundMeter: null as SoundMeter,
+  /**
+   * @description: 音视频当前配置
+   */
+  defaultConstraints: {
+    audio: true as boolean,
+    video: {
+      deviceId: "" as string,
+      width: { exact: 320 as number },
+      height: { exact: 240 as number },
+    },
+  },
 };
 
 /**
@@ -193,22 +210,28 @@ class AudioVideoSettings extends React.Component<IProps, IState> {
             case "videoinput":
               datas.videoEquipments.push(device);
               break;
-              case "audioinput":
+            case "audioinput":
               datas.audioEquipmentsIn.push(device);
               break;
             default:
               datas.audioEquipmentsOut.push(device);
-              break
+              break;
           }
         }
         if (datas.videoEquipments.length > 0) {
-          this.setState({videoEquipmentDefault:datas.videoEquipments[0].deviceId})
+          this.setState({
+            videoEquipmentDefault: datas.videoEquipments[0].deviceId,
+          });
         }
         if (datas.audioEquipmentsIn.length > 0) {
-          this.setState({audioEquipmentDefaultIn:datas.audioEquipmentsIn[0].deviceId})
+          this.setState({
+            audioEquipmentDefaultIn: datas.audioEquipmentsIn[0].deviceId,
+          });
         }
         if (datas.videoEquipments.length > 0) {
-          this.setState({audioEquipmentDefaultOut:datas.audioEquipmentsOut[0].deviceId})
+          this.setState({
+            audioEquipmentDefaultOut: datas.audioEquipmentsOut[0].deviceId,
+          });
         }
       })
       .catch(() => {
@@ -221,23 +244,6 @@ class AudioVideoSettings extends React.Component<IProps, IState> {
    */
   resolvingPowerChange = (e: string): void => {
     this.setState({ resolvingPower: e });
-    // 已有视频在播放的话,关闭所有轨道
-    if (models.stream) {
-      models.stream.getTracks().forEach((item) => {
-        item.stop();
-      });
-    }
-    // 根据约束获取视频
-    const model = Enumerable.from(datas.resolvingPower)
-      .where((p) => p.value === e)
-      .firstOrDefault({ value: "qvga", label: "qvga" });
-    const constraints = resolvingPower[
-      model.value + "Constraints"
-    ] as MediaStreamConstraints;
-    navigator.mediaDevices
-      .getUserMedia(constraints)
-      .then(this.getStream)
-      .catch(this.getStreamError);
   };
   /**
    * @description: 获取视频成功后触发
@@ -274,12 +280,13 @@ class AudioVideoSettings extends React.Component<IProps, IState> {
    */
   dynamicSettings = (): void => {
     if (models.stream) {
-      const name = "fullhd" as string;
-      const constraints = resolvingPower[name + "Constraints"]
-        .video as MediaTrackConstraints;
-      models.stream
-        .getVideoTracks()[0]
-        .applyConstraints(constraints)
+      const name = this.state.resolvingPower as string;
+      const constraints = resolvingPower[name].video as MediaTrackConstraints;
+      this.setDefaultConstraints("audio", constraints);
+      this.setDefaultConstraints("video", constraints);
+      const track = models.stream.getVideoTracks()[0];
+      track
+        .applyConstraints(models.defaultConstraints.video)
         .then(() => {
           this.setState({ resolvingPower: name });
           message.success("设置成功", 1.5);
@@ -298,21 +305,93 @@ class AudioVideoSettings extends React.Component<IProps, IState> {
    */
   volumeDetection = (): void => {
     try {
-      window.AudioContext = window.AudioContext || window.webkitAudioContext;
-      models.audioContext = new window.AudioContext();
-      models.soundMeter = new SoundMeter(models.audioContext);
+      if (models.soundMeter === null) {
+        window.AudioContext = window.AudioContext || window.webkitAudioContext;
+        models.audioContext = new window.AudioContext();
+        models.soundMeter = new SoundMeter(models.audioContext);
+      } else {
+        return;
+      }
     } catch {
       console.log("网页音频API不支持");
       return;
     }
   };
   /**
+   * @description: 音视频当前应用的配置
+   * @param {string} type 类型:audio video
+   * @return {void}
+   */
+  setDefaultConstraints(
+    type: string,
+    constraints: boolean | MediaTrackConstraints
+  ): void {
+    if (typeof constraints === "boolean") {
+      models.defaultConstraints[type] = constraints;
+    } else {
+      if (type === "audio") {
+      } else {
+        if (constraints.deviceId) {
+          models.defaultConstraints.video.deviceId =
+            constraints.deviceId as string;
+        } else {
+          models.defaultConstraints.video.deviceId =
+            this.state.videoEquipmentDefault;
+        }
+        models.defaultConstraints.video.width.exact = (
+          constraints.width as ConstrainULongRange
+        ).exact;
+        models.defaultConstraints.video.height.exact = (
+          constraints.height as ConstrainULongRange
+        ).exact;
+      }
+    }
+  }
+  /**
+   * @description: 开始预览
+   */
+  startPreview = (): void => {
+    this.volumeDetection();
+    this.stopPreview();
+
+    // 已有视频在播放的话,关闭所有轨道
+    this.stopPreview();
+    // 根据约束获取视频
+    const model = Enumerable.from(datas.resolvingPower)
+      .where((p) => p.value === this.state.resolvingPower)
+      .firstOrDefault({ value: "qvga", label: "qvga" });
+    const constraints = resolvingPower[model.value] as MediaStreamConstraints;
+    this.setDefaultConstraints("audio", constraints.audio);
+    this.setDefaultConstraints("video", constraints.video);
+
+    navigator.mediaDevices
+      .getUserMedia(models.defaultConstraints as MediaStreamConstraints)
+      .then(this.getStream)
+      .catch(this.getStreamError);
+  };
+  /**
+   * @description: 停止预览
+   */
+  stopPreview = (): void => {
+    if (models.stream && models.stream.getTracks) {
+      models.stream.getTracks().forEach((track) => {
+        track.stop();
+      });
+    } else {
+      return;
+    }
+  };
+  /**
+   * @description: 视频设备切换
+   */
+  videoEquipmentChange(e: string) {
+    this.setState({ videoEquipmentDefault: e });
+  }
+  /**
    * @description: 页面加载完成后执行
    */
   componentDidMount() {
     this.controlInitDataBinding();
-    this.volumeDetection();
-    this.resolvingPowerChange(datas.resolvingPower[0].value);
   }
   /**
    * @description: 页面卸载完成后执行
@@ -337,6 +416,7 @@ class AudioVideoSettings extends React.Component<IProps, IState> {
             style={{ width: "200px", marginLeft: "20px" }}
             defaultValue={this.state.videoEquipmentDefault}
             value={this.state.videoEquipmentDefault}
+            onChange={this.videoEquipmentChange}
           >
             {datas.videoEquipments.map((item) => {
               return (
@@ -403,6 +483,12 @@ class AudioVideoSettings extends React.Component<IProps, IState> {
         </Select>
         <Button onClick={this.dynamicSettings} style={{ marginLeft: "20px" }}>
           动态设置
+        </Button>
+        <Button onClick={this.startPreview} style={{ marginLeft: "20px" }}>
+          开始预览
+        </Button>
+        <Button onClick={this.stopPreview} style={{ marginLeft: "20px" }}>
+          停止预览
         </Button>
       </div>
     );
